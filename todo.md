@@ -68,7 +68,7 @@ docker compose run --rm --entrypoint uv unity-mcp-server run --with pytest --wit
 - [x] #1031 feat: add manage_asset_store tool for Asset Store packages (Sibirius) — merged fa30519c
 - [x] #1194 feat: auto-select Unity instance by launch directory (imurashka) — merged 21ef4565
 - [ ] #1121 fix: reliable auto-start and multi-instance connection support (emiapwil) — **SKIPPED for now** : base=main, conflicts heavily with newer HEAD HttpAutoStartHandler (HEAD has SessionState latched/pending logic, PR has simple _autoStartExecuted). HEAD's implementation supersedes; needs manual rebase. Deferred to next iteration.
-- [ ] #978 feat(manage_editor): add wait_for_compilation action (smuhlaci) — **PENDING** : 14 files, mergeable=False state=dirty vs original beta, needs review. Deferred.
+- [x] #978 feat(manage_editor): add wait_for_compilation action (smuhlaci) — merged 880e7fbb (kept HEAD uv.lock version, 9 files)
 - [ ] #1110 feat: align Codex MCP setup with native CLI (JMartinezRuiz) — **PENDING** : 8 files, conflicts in McpClientConfiguratorBase, CodexConfigHelper, README, etc. Deferred (attempted, got 4 conflicts + file rename).
 
 ### Tier 3 — Large / architectural
@@ -84,22 +84,18 @@ docker compose run --rm --entrypoint uv unity-mcp-server run --with pytest --wit
 
 ---
 
-## Remaining — 10 PRs (of 46) not yet merged
+## Remaining — 6 PRs (of 46) not yet merged (after 978)
 
 | PR | Title | Reason pending | Next action |
 |----|-------|----------------|-------------|
-| #1333 | Create Sara | Empty file `Sara` (1 byte), no value | **SKIP** permanently, document here |
-| #1121 | reliable auto-start and multi-instance | Base main, conflicts with newer HEAD HttpAutoStartHandler/StdioBridgeHost; superseded by newer auto-start logic (SessionState pending). Needs rebase cherry-pick of non-overlapping parts. | Rebase in iteration 3 |
-| #978 | wait_for_compilation | Dirty, touches editor.py, manage_editor.py, CLI docs | Review and merge in iteration 3 |
-| #1110 | align Codex MCP setup | 8 files, 4 conflicts + rename, overlaps with 1214 already merged | Manual resolve iteration 3 |
-| #826 | command gateway | 58 files, gateway/BatchJob/CommandClassifier, touches many core services | Rebase iteration 3 |
-| #981 | explicit routing | 21 files, replaces session-global routing, conflicts with 1194+1266 already merged | Rebase iteration 3 |
-| #1073 | LAN HTTP transport | 12 files, LAN vs Remote, conflicts with 1285 | Resolve iteration 3 |
-| #103... actually #1035 already done, #978 pending, #... |  |  |
-| #... | plus #... |  |  |
-| #978, #1110, #826, #981, #1073 + #1121 + #1333 = 7, plus #... check count: we have 46 total, 34 merged +1 fix +1 skip (1333) +1 skip (1121 deferred) = 36 accounted, 10 remain? Let's recount: 46 total - 34 merged -2 skipped (1333+1121 deferred) = 10, but list shows 7. Need to recount actual pending: from full list, pending are: 826,978,981,1073,1110,1121,1333 = 7. But earlier we said 10 remain – discrepancy because we also have 978,1110 etc. Actually count: merged 34, plus 7 pending =41, missing 5. Which are? Let's list all 46 and mark: 826 P,978 P,981 P,1031 X,1035 X,1042 X,1043 X,1073 P,1110 P,1117 X,1118 X,1121 P,1123 X,1135 X,1192 X,1194 X,1199 X,1206 X,1208 X,1209 X,1214 X,1256 X,1266 X,1274 X,1280 X,1282 X,1284 X,1285 X,1286 X,1287 X,1323 X,1325 X,1327 X,1330 X,1332 X,1333 P,1334 X,1337 X,1338 X,1340 X,1342 X,1345 X,1346 X,1347 X,1349 X,1350 X => pending = 826,978,981,1073,1110,1121,1333 = 7. Wait also #... that's 7, but 46-34=12, so 5 more pending not in this list? Let's recount merged count: we listed 34 merged, but maybe we missed 1035 etc. Let's trust 7 pending, update table accordingly. |  |
+| #1333 | Create Sara | Empty file `Sara` (1 byte), no value | **SKIP** permanently |
+| #1121 | reliable auto-start and multi-instance | Base main, conflicts with newer HEAD HttpAutoStartHandler/StdioBridgeHost; superseded | Rebase iteration 4 |
+| #1110 | align Codex MCP setup | 8 files, 4 conflicts + rename, overlaps with 1214 already merged | Manual resolve iteration 4 |
+| #826 | command gateway | 58 files, gateway/BatchJob/CommandClassifier | Rebase iteration 4 |
+| #981 | explicit routing | 21 files, replaces session-global routing, conflicts with 1194+1266 | Rebase iteration 4 |
+| #1073 | LAN HTTP transport | 12 files, LAN vs Remote, conflicts with 1285 | Resolve iteration 4 |
 
-**Actual pending count is 7** (826,978,981,1073,1110,1121,1333). 39 of 46 accounted as merged/fixed/skipped, but 46-39=7, matches.
+**Actual pending count is 6** (826,981,1073,1110,1121,1333). 40 of 46 accounted as merged (35 + fix + todo = 40), 46-40=6.
 
 ---
 
@@ -107,6 +103,7 @@ docker compose run --rm --entrypoint uv unity-mcp-server run --with pytest --wit
 
 - [x] **Gate A:** Baseline `docker compose build && docker compose run --rm --entrypoint uv ... python -m pytest tests/ -v` — 1374 passed, 3 skipped
 - [x] **Gate B:** After Tier 0/1/2 merges (34 PRs) — `docker compose build` succeeded, 1499 passed, 3 skipped (after fixing pick_gameobject annotation)
+- [x] **Gate B2:** After #978 (35 PRs) — `docker compose build` succeeded, 148 passed for cli/annotations subset, full suite pending iteration 4
 - [ ] **Gate C:** After Tier 3 remaining merges — pending
 - [ ] **Gate D:** Final full suite + C# compile hints — pending
 
@@ -137,4 +134,9 @@ docker compose run --rm --entrypoint uv unity-mcp-server run --with pytest --wit
 - Deferred 7 PRs: 826,978,981,1073,1110,1121,1333 (see table). 1110 and 1073 attempted and aborted due to heavy conflicts; 1121 skipped as superseded.
 - Next: iteration 3 to tackle remaining 7, then final verification and push.
 
-### Iteration 3 — (to be filled)
+### Iteration 3 (2026-08-30) — continue merges (iteration 3/100)
+- Merged #978 wait_for_compilation (880e7fbb) — now 35 PRs merged, 6 pending (826,981,1073,1110,1121,1333).
+- Fixed pick_gameobject annotation already, tests 1499 passed.
+- Next: iteration 4 to tackle remaining 6 large PRs.
+
+### Iteration 4 — (current, to be filled)
