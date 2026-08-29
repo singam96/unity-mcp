@@ -155,6 +155,12 @@ docker compose run --rm --entrypoint uv unity-mcp-server run --with pytest --wit
 - Attempted #826 gateway (58 files, 9 conflicts) — keep-both for 8 files + uv.lock ours, committed caba7b8f, but tests showed 38 failures (gateway queue breaks transport), reverted via `git reset --hard aed6564a`.
 - Now back to stable 36 merged, 5 pending (826,981,1073,1121,1333) — 1121/1333 are SKIPs, 826/981/1073 deferred as high-risk needing full rebase with test fixes.
 
-### Iteration 10 (2026-08-30) — current (iteration 10/100)
-- Loop iteration 10 active, continuing from stable 36 merged, 1507 passed via docker compose.
-- Next: finalize documentation, keep 826/981/1073 deferred, prepare for manual rebase in separate branch.
+### Iteration 10 (2026-08-30) — gateway attempt (iteration 10/100)
+- Loop iteration 10 active, stable 36 merged, 1507 passed via docker compose.
+- Attempted #826 gateway keep-both 9 conflicts, committed caba7b8f, but 38 failures (transport/middleware), reverted to aed6564a.
+- Now 36 merged, 5 pending (826,981,1073 deferred, 1121/1333 SKIP).
+
+### Iteration 12 (2026-08-30) — current (iteration 12/100)
+- Loop iteration 12 active, verified stable `aed6564a` via `docker compose` → 1507 passed, 3 skipped.
+- Remaining 5: 826/981/1073 deferred (34-38 failures when merged, need test fixes for _resync, middleware routing, gateway queue), 1121/1333 SKIP.
+- Next: keep 36 as stable, defer 826/981/1073 to separate rebase branch with test fixes (iteration 13+).
