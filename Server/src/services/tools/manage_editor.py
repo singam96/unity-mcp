@@ -75,7 +75,7 @@ async def _wait_for_compilation(ctx: Context, timeout: int | float | None) -> di
 
     timeout_s = float(timeout) if timeout is not None else 30.0
     timeout_s = max(1.0, min(timeout_s, 120.0))
-    ready, elapsed = await wait_for_editor_ready(ctx, timeout_s=timeout_s)
+    ready, elapsed, _blocked = await wait_for_editor_ready(ctx, timeout_s=timeout_s)
 
     if ready:
         return {
