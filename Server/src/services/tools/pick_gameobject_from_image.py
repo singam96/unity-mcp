@@ -56,7 +56,7 @@ def _positive_float(value: Any, name: str) -> tuple[float | None, str | None]:
 @mcp_for_unity_tool(
     group="core",
     description=DESCRIPTION,
-    annotations=ToolAnnotations(title="Pick GameObject From Image", destructiveHint=False),
+    annotations=ToolAnnotations(title="Pick GameObject From Image", readOnlyHint=True, destructiveHint=False),
 )
 async def pick_gameobject_from_image(
     ctx: Context,

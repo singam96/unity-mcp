@@ -36,6 +36,7 @@ READ_ONLY = {
     "get_sha",
     "get_test_job",
     "manage_script_capabilities",
+    "pick_gameobject_from_image",
     "unity_docs",
     "unity_reflect",
     "validate_script",
