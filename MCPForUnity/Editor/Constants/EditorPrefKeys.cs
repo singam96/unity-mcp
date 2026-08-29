@@ -86,5 +86,6 @@ namespace MCPForUnity.Editor.Constants
         internal const string AssetGenOutputRoot = "MCPForUnity.AssetGen.OutputRoot";
         internal const string AssetGenAutoNormalize = "MCPForUnity.AssetGen.AutoNormalize";
         internal const string AssetGenProviderEnabledPrefix = "MCPForUnity.AssetGen.Enabled.";
+        internal const string MacOSTerminalApp = "MCPForUnity.MacOSTerminalApp";
     }
 }
