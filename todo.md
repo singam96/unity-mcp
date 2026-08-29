@@ -84,17 +84,17 @@ docker compose run --rm --entrypoint uv unity-mcp-server run --with pytest --wit
 
 ---
 
-## Remaining — 5 PRs (of 46) not yet merged (after 1110)
+## Remaining — 5 PRs (of 46) not yet merged (after revert to stable 36)
 
 | PR | Title | Reason pending | Next action |
 |----|-------|----------------|-------------|
 | #1333 | Create Sara | Empty file `Sara` (1 byte), no value | **SKIP** permanently |
-| #1121 | reliable auto-start and multi-instance | Base main, superseded by HEAD SessionState logic (HttpAutoStartHandler) | Rebase iteration 7 or **SKIP** as superseded |
-| #826 | command gateway | 58 files, gateway/BatchJob/CommandClassifier, touches TransportCommandDispatcher/BatchExecute | Rebase iteration 7 (high risk) |
-| #981 | explicit routing | 21 files, replaces session-global routing, conflicts with 1194+1266 (launch-dir) | Rebase iteration 7 (high risk) |
-| #1073 | LAN HTTP transport | 12 files, LAN vs Remote, conflicts with 1285 trio | Resolve iteration 7 |
+| #1121 | reliable auto-start and multi-instance | Base main, superseded by HEAD SessionState logic (HttpAutoStartHandler) | **SKIP** as superseded |
+| #826 | command gateway | 58 files, gateway/BatchJob/CommandClassifier, 9 conflicts, 38 test failures when keep-both | **DEFERRED** needs full rebase of gateway queue (iteration 11+) |
+| #981 | explicit routing | 21 files, replaces session-global routing, 34 failures when merged (missing _resync, middleware) | **DEFERRED** needs rebase with _resync fix (iteration 11+) |
+| #1073 | LAN HTTP transport | 12 files, LAN vs Remote, 34 failures when merged | **DEFERRED** needs rebase with HttpEndpointUtility + middleware (iteration 11+) |
 
-**Actual pending count is 5** (826,981,1073,1121,1333). 41 of 46 accounted as merged (36 + fix + todo = 41), 46-41=5. Tests: 1507 passed, 3 skipped via docker compose.
+**Actual pending count is 5** (826,981,1073,1121,1333). 41 of 46 accounted as merged (36 + fix + todo = 41), 46-41=5. Tests: 1507 passed, 3 skipped via docker compose at stable aed6564a.
 
 ---
 
@@ -145,6 +145,16 @@ docker compose run --rm --entrypoint uv unity-mcp-server run --with pytest --wit
 - Deferred 1073 LAN HTTP (attempted cherry-pick 55bbe0af, got 3 conflicts, aborted via reset --hard).
 - Now 36 PRs merged, 5 pending (826,981,1073,1121,1333).
 
-### Iteration 6 (2026-08-30) — current (iteration 6/100)
+### Iteration 6 (2026-08-30) — continue (iteration 6/100)
 - Loop iteration 6 active, continuing from iteration 4 state.
-- Next: attempt 1073,981,826 or document as superseded/high-risk and finalize.
+- Merged #978 and #1110 already, now 36 merged.
+
+### Iteration 8 (2026-08-30) — LAN + explicit routing attempt (iteration 8/100)
+- Merged #1073 via 2 cherry-picks (93811c24, 360d5894) and #981 via 1300aa01 — 21+12 files, resolved HttpEndpointUtility, middleware keep-both, legacy took theirs.
+- Result: 43 merged, but `docker compose` tests showed 34 failures (missing `_resync_tools_after_reconnect`, plus middleware routing). Reverted via `git reset --hard aed6564a` to stable 36 merged, 1507 passed.
+- Attempted #826 gateway (58 files, 9 conflicts) — keep-both for 8 files + uv.lock ours, committed caba7b8f, but tests showed 38 failures (gateway queue breaks transport), reverted via `git reset --hard aed6564a`.
+- Now back to stable 36 merged, 5 pending (826,981,1073,1121,1333) — 1121/1333 are SKIPs, 826/981/1073 deferred as high-risk needing full rebase with test fixes.
+
+### Iteration 10 (2026-08-30) — current (iteration 10/100)
+- Loop iteration 10 active, continuing from stable 36 merged, 1507 passed via docker compose.
+- Next: finalize documentation, keep 826/981/1073 deferred, prepare for manual rebase in separate branch.
