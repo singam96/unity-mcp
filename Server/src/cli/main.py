@@ -273,6 +273,7 @@ def register_commands():
         ("cli.commands.graphics", "graphics"),
         ("cli.commands.packages", "packages"),
         ("cli.commands.asset_store", "asset_store"),
+        ("cli.commands.unity_hub", "unity_hub"),
         ("cli.commands.reflect", "reflect"),
         ("cli.commands.docs", "docs"),
         ("cli.commands.physics", "physics"),
