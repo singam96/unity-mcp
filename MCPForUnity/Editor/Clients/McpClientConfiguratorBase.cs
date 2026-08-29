@@ -438,6 +438,8 @@ namespace MCPForUnity.Editor.Clients
 
         public override string GetConfigPath() => GetPreferredWriteConfigPath();
 
+        public override string GetConfigureActionLabel() => client.status == McpStatus.Configured ? "Unregister" : "Configure";
+
         public override bool IsInstalled
         {
             get
