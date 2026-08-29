@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace MCPForUnity.Runtime.Helpers
@@ -50,6 +52,7 @@ namespace MCPForUnity.Runtime.Helpers
         /// or globally via <c>ScreenshotPreferences</c> in the Editor assembly.
         /// </summary>
         public const string DefaultFolder = "Assets/Screenshots";
+        private static readonly SemaphoreSlim CompositedCaptureGate = new SemaphoreSlim(1, 1);
 
         private static Camera FindAvailableCamera()
         {
@@ -166,46 +169,6 @@ namespace MCPForUnity.Runtime.Helpers
             return result;
         }
 
-#if UNITY_EDITOR
-        // Synchronously drive a WaitForEndOfFrame ScreenshotCapturer by pumping the editor's
-        // player loop. Play-mode only; EditorApplication.Step is a no-op in edit mode.
-        private static Texture2D CaptureCompositedAfterFrame(int superSize, int timeoutSteps = 5)
-        {
-            Texture2D result = null;
-            bool done = false;
-            bool callerReturned = false;
-            ScreenshotCapturer.Begin(superSize, tex =>
-            {
-                // Late completion after the spin loop timed out: caller will never consume
-                // the texture, so destroy it here to avoid leaking a Unity object.
-                if (callerReturned)
-                {
-                    if (tex != null) DestroyTexture(tex);
-                    return;
-                }
-                result = tex;
-                done = true;
-            });
-            // Step() pauses play mode as a side effect; restore the prior state so a screenshot
-            // doesn't leave a running game paused (an already-paused game stays paused).
-            bool wasPaused = UnityEditor.EditorApplication.isPaused;
-            try
-            {
-                for (int i = 0; i < timeoutSteps && !done; i++)
-                {
-                    UnityEditor.EditorApplication.Step();
-                }
-            }
-            finally
-            {
-                if (!wasPaused)
-                    UnityEditor.EditorApplication.isPaused = false;
-            }
-            callerReturned = true;
-            return result;
-        }
-#endif
-
         /// <summary>
         /// Captures a screenshot using ScreenCapture.CaptureScreenshotAsTexture, which captures the
         /// final composited frame including UI Toolkit overlays, post-processing, etc.
@@ -222,67 +185,162 @@ namespace MCPForUnity.Runtime.Helpers
             ScreenshotCaptureResult result = PrepareCaptureResult(fileName, superSize, ensureUniqueFileName, folderOverride: folderOverride, isAsync: false);
             Texture2D tex = null;
             Texture2D downscaled = null;
-            string imageBase64 = null;
-            int imgW = 0, imgH = 0;
             try
             {
-#if UNITY_EDITOR
-                // In play mode, inline ScreenCapture reads a backbuffer before UITK has
-                // composited; route through WaitForEndOfFrame instead.
-                tex = Application.isPlaying
-                    ? CaptureCompositedAfterFrame(result.SuperSize)
-                    : ScreenCapture.CaptureScreenshotAsTexture(result.SuperSize);
-#else
+                // Direct capture is safe in edit mode. Play-mode MCP callers must use
+                // CaptureCompositedAsync so WaitForEndOfFrame can run without
+                // EditorApplication.Step re-entering the PlayerLoop.
                 tex = ScreenCapture.CaptureScreenshotAsTexture(result.SuperSize);
-#endif
                 if (tex == null)
                 {
-                    // Fallback to camera-based if ScreenCapture fails
-                    var cam = FindAvailableCamera();
-                    if (cam != null)
-                        return CaptureFromCameraToProjectFolder(cam, fileName, superSize, ensureUniqueFileName,
-                            includeImage, maxResolution, folderOverride: folderOverride);
-                    throw new InvalidOperationException("ScreenCapture.CaptureScreenshotAsTexture returned null and no fallback camera available.");
+                    return CaptureCompositedOrCameraFallback(
+                        fileName, superSize, ensureUniqueFileName, includeImage, maxResolution, folderOverride);
                 }
 
-                int width = tex.width;
-                int height = tex.height;
-
-                byte[] png = tex.EncodeToPNG();
-                File.WriteAllBytes(result.FullPath, png);
-
-                if (includeImage)
-                {
-                    int targetMax = maxResolution > 0 ? maxResolution : 640;
-                    if (width > targetMax || height > targetMax)
-                    {
-                        downscaled = DownscaleTexture(tex, targetMax);
-                        byte[] smallPng = downscaled.EncodeToPNG();
-                        imageBase64 = System.Convert.ToBase64String(smallPng);
-                        imgW = downscaled.width;
-                        imgH = downscaled.height;
-                    }
-                    else
-                    {
-                        imageBase64 = System.Convert.ToBase64String(png);
-                        imgW = width;
-                        imgH = height;
-                    }
-                }
+                return EncodeAndSaveComposited(tex, result, includeImage, maxResolution, ref downscaled);
             }
             finally
             {
                 DestroyTexture(tex);
                 DestroyTexture(downscaled);
             }
+        }
 
-            if (includeImage && imageBase64 != null)
+        /// <summary>
+        /// Play-mode composited capture that waits for end-of-frame without pumping
+        /// <c>EditorApplication.Step</c>. MCP commands run inside
+        /// <c>UnitySynchronizationContext.ExecuteTasks</c>, so a synchronous Step()
+        /// re-enters the PlayerLoop and can flood Editor.log until the Editor dies.
+        /// </summary>
+        public static async Task<ScreenshotCaptureResult> CaptureCompositedAsync(
+            string fileName = null,
+            int superSize = 1,
+            bool ensureUniqueFileName = true,
+            bool includeImage = false,
+            int maxResolution = 0,
+            string folderOverride = null)
+        {
+            if (!await CompositedCaptureGate
+                    .WaitAsync(TimeSpan.FromSeconds(ScreenshotCapturer.DefaultTimeoutSeconds * 4))
+                    .ConfigureAwait(true))
             {
-                return new ScreenshotCaptureResult(
-                    result.FullPath, result.ProjectRelativePath, result.SuperSize, false,
-                    imageBase64, imgW, imgH);
+                throw new TimeoutException(
+                    "Another composited screenshot capture is still in progress. Retry shortly.");
             }
-            return result;
+            try
+            {
+                return await CaptureCompositedAsyncUngated(
+                    fileName, superSize, ensureUniqueFileName, includeImage, maxResolution, folderOverride)
+                    .ConfigureAwait(true);
+            }
+            finally
+            {
+                CompositedCaptureGate.Release();
+            }
+        }
+
+        private static Task<ScreenshotCaptureResult> CaptureCompositedAsyncUngated(
+            string fileName,
+            int superSize,
+            bool ensureUniqueFileName,
+            bool includeImage,
+            int maxResolution,
+            string folderOverride)
+        {
+            var prepared = PrepareCaptureResult(fileName, superSize, ensureUniqueFileName, folderOverride: folderOverride, isAsync: false);
+            var tcs = new TaskCompletionSource<ScreenshotCaptureResult>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            ScreenshotCapturer.Begin(prepared.SuperSize, (tex, timedOut) =>
+            {
+                Texture2D downscaled = null;
+                try
+                {
+                    if (timedOut)
+                    {
+                        tcs.TrySetException(new TimeoutException(
+                            "Play-mode screenshot timed out waiting for end of frame. Keep the Game view visible and the editor unpaused."));
+                        return;
+                    }
+
+                    if (tex == null)
+                    {
+                        tcs.TrySetResult(CaptureCompositedOrCameraFallback(
+                            fileName, superSize, ensureUniqueFileName, includeImage, maxResolution, folderOverride));
+                        return;
+                    }
+
+                    tcs.TrySetResult(EncodeAndSaveComposited(tex, prepared, includeImage, maxResolution, ref downscaled));
+                }
+                catch (Exception ex)
+                {
+                    tcs.TrySetException(ex);
+                }
+                finally
+                {
+                    DestroyTexture(tex);
+                    DestroyTexture(downscaled);
+                }
+            });
+
+            return tcs.Task;
+        }
+
+        private static ScreenshotCaptureResult CaptureCompositedOrCameraFallback(
+            string fileName,
+            int superSize,
+            bool ensureUniqueFileName,
+            bool includeImage,
+            int maxResolution,
+            string folderOverride)
+        {
+            var cam = FindAvailableCamera();
+            if (cam != null)
+            {
+                return CaptureFromCameraToProjectFolder(cam, fileName, superSize, ensureUniqueFileName,
+                    includeImage, maxResolution, folderOverride: folderOverride);
+            }
+
+            throw new InvalidOperationException(
+                "ScreenCapture.CaptureScreenshotAsTexture returned null and no fallback camera available.");
+        }
+
+        private static ScreenshotCaptureResult EncodeAndSaveComposited(
+            Texture2D tex,
+            ScreenshotCaptureResult prepared,
+            bool includeImage,
+            int maxResolution,
+            ref Texture2D downscaled)
+        {
+            int width = tex.width;
+            int height = tex.height;
+            byte[] png = tex.EncodeToPNG();
+            File.WriteAllBytes(prepared.FullPath, png);
+
+            if (!includeImage)
+                return prepared;
+
+            int targetMax = maxResolution > 0 ? maxResolution : 640;
+            string imageBase64;
+            int imgW;
+            int imgH;
+            if (width > targetMax || height > targetMax)
+            {
+                downscaled = DownscaleTexture(tex, targetMax);
+                imageBase64 = Convert.ToBase64String(downscaled.EncodeToPNG());
+                imgW = downscaled.width;
+                imgH = downscaled.height;
+            }
+            else
+            {
+                imageBase64 = Convert.ToBase64String(png);
+                imgW = width;
+                imgH = height;
+            }
+
+            return new ScreenshotCaptureResult(
+                prepared.FullPath, prepared.ProjectRelativePath, prepared.SuperSize, false,
+                imageBase64, imgW, imgH);
         }
 
         /// <summary>
@@ -754,29 +812,120 @@ namespace MCPForUnity.Runtime.Helpers
     /// <summary>
     /// Transient MonoBehaviour that yields WaitForEndOfFrame, calls
     /// ScreenCapture.CaptureScreenshotAsTexture, invokes the callback, and self-destructs.
+    /// Times out via the editor update loop so a paused or unfocused PlayerLoop cannot leak
+    /// hidden capturer objects for the rest of the session.
     /// </summary>
     public sealed class ScreenshotCapturer : MonoBehaviour
     {
+        public const float DefaultTimeoutSeconds = 2f;
+
         private int _superSize = 1;
-        private Action<Texture2D> _onComplete;
+        private Action<Texture2D, bool> _onComplete;
+        private float _timeoutSeconds = DefaultTimeoutSeconds;
+        private float _startedAt;
+        private bool _finished;
+        private bool _destroying;
 
         /// <summary>Spawns a hidden GameObject, attaches a capturer, returns immediately.</summary>
-        public static void Begin(int superSize, Action<Texture2D> onComplete)
+        public static ScreenshotCapturer Begin(int superSize, Action<Texture2D> onComplete, float timeoutSeconds = DefaultTimeoutSeconds)
+        {
+            return Begin(superSize, (tex, _) => onComplete?.Invoke(tex), timeoutSeconds);
+        }
+
+        /// <summary>Spawns a hidden GameObject, attaches a capturer, returns immediately.</summary>
+        public static ScreenshotCapturer Begin(int superSize, Action<Texture2D, bool> onComplete, float timeoutSeconds = DefaultTimeoutSeconds)
         {
             var go = new GameObject("__MCP_ScreenshotCapturer__") { hideFlags = HideFlags.HideAndDontSave };
             var c = go.AddComponent<ScreenshotCapturer>();
             c._superSize = Mathf.Max(1, superSize);
             c._onComplete = onComplete;
+            c._timeoutSeconds = Mathf.Max(0.05f, timeoutSeconds);
+            c._startedAt = Time.realtimeSinceStartup;
+            c.ArmTimeout();
+            return c;
         }
+
+        private void ArmTimeout()
+        {
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.update += TickTimeout;
+#else
+            StartCoroutine(TimeoutWatch());
+#endif
+        }
+
+        private void OnDestroy()
+        {
+            _destroying = true;
+            DisarmTimeout();
+            if (!_finished)
+                Complete(null, timedOut: true);
+        }
+
+        private void DisarmTimeout()
+        {
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.update -= TickTimeout;
+#endif
+        }
+
+#if UNITY_EDITOR
+        private void TickTimeout()
+        {
+            if (_finished) return;
+            if (Time.realtimeSinceStartup - _startedAt < _timeoutSeconds) return;
+            Complete(null, timedOut: true);
+        }
+#else
+        private System.Collections.IEnumerator TimeoutWatch()
+        {
+            yield return new WaitForSecondsRealtime(_timeoutSeconds);
+            if (!_finished)
+                Complete(null, timedOut: true);
+        }
+#endif
 
         private System.Collections.IEnumerator Start()
         {
             yield return new WaitForEndOfFrame();
+            if (_finished) yield break;
+
             Texture2D tex = null;
             try { tex = ScreenCapture.CaptureScreenshotAsTexture(_superSize); }
             catch (Exception ex) { Debug.LogError($"[MCP for Unity] CaptureScreenshotAsTexture failed: {ex.Message}"); }
-            _onComplete?.Invoke(tex);
-            Destroy(gameObject);
+            Complete(tex, timedOut: false);
+        }
+
+        private void Complete(Texture2D tex, bool timedOut)
+        {
+            if (_finished)
+            {
+                if (tex != null)
+                {
+                    if (Application.isPlaying)
+                        Destroy(tex);
+                    else
+                        DestroyImmediate(tex);
+                }
+                return;
+            }
+            _finished = true;
+            DisarmTimeout();
+            try
+            {
+                _onComplete?.Invoke(tex, timedOut);
+            }
+            finally
+            {
+                if (!_destroying)
+                {
+#if UNITY_EDITOR
+                    DestroyImmediate(gameObject);
+#else
+                    Destroy(gameObject);
+#endif
+                }
+            }
         }
     }
 }
