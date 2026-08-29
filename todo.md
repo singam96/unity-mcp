@@ -69,7 +69,7 @@ docker compose run --rm --entrypoint uv unity-mcp-server run --with pytest --wit
 - [x] #1194 feat: auto-select Unity instance by launch directory (imurashka) — merged 21ef4565
 - [ ] #1121 fix: reliable auto-start and multi-instance connection support (emiapwil) — **SKIPPED for now** : base=main, conflicts heavily with newer HEAD HttpAutoStartHandler (HEAD has SessionState latched/pending logic, PR has simple _autoStartExecuted). HEAD's implementation supersedes; needs manual rebase. Deferred to next iteration.
 - [x] #978 feat(manage_editor): add wait_for_compilation action (smuhlaci) — merged 880e7fbb (kept HEAD uv.lock version, 9 files)
-- [ ] #1110 feat: align Codex MCP setup with native CLI (JMartinezRuiz) — **PENDING** : 8 files, conflicts in McpClientConfiguratorBase, CodexConfigHelper, README, etc. Deferred (attempted, got 4 conflicts + file rename).
+- [x] #1110 feat: align Codex MCP setup with native CLI (JMartinezRuiz) — merged 9e1be49d+f506db68+4f0fdaaf (3 cherry-picks, kept HEAD McpClientBase + GetConfigureActionLabel, CodexConfigHelper updates, CODEX_HELP.md added to website/docs/guides)
 
 ### Tier 3 — Large / architectural
 - [ ] #826 feat: add command gateway for multi-agent concurrent access (Lint111) — **PENDING** : 58-62 files, mergeable=False, dirty, touches TransportCommandDispatcher, BatchExecute, etc. Needs manual rebase, high risk. Deferred.
@@ -84,18 +84,17 @@ docker compose run --rm --entrypoint uv unity-mcp-server run --with pytest --wit
 
 ---
 
-## Remaining — 6 PRs (of 46) not yet merged (after 978)
+## Remaining — 5 PRs (of 46) not yet merged (after 1110)
 
 | PR | Title | Reason pending | Next action |
 |----|-------|----------------|-------------|
 | #1333 | Create Sara | Empty file `Sara` (1 byte), no value | **SKIP** permanently |
-| #1121 | reliable auto-start and multi-instance | Base main, conflicts with newer HEAD HttpAutoStartHandler/StdioBridgeHost; superseded | Rebase iteration 4 |
-| #1110 | align Codex MCP setup | 8 files, 4 conflicts + rename, overlaps with 1214 already merged | Manual resolve iteration 4 |
-| #826 | command gateway | 58 files, gateway/BatchJob/CommandClassifier | Rebase iteration 4 |
-| #981 | explicit routing | 21 files, replaces session-global routing, conflicts with 1194+1266 | Rebase iteration 4 |
-| #1073 | LAN HTTP transport | 12 files, LAN vs Remote, conflicts with 1285 | Resolve iteration 4 |
+| #1121 | reliable auto-start and multi-instance | Base main, superseded by HEAD SessionState logic (HttpAutoStartHandler) | Rebase iteration 7 or **SKIP** as superseded |
+| #826 | command gateway | 58 files, gateway/BatchJob/CommandClassifier, touches TransportCommandDispatcher/BatchExecute | Rebase iteration 7 (high risk) |
+| #981 | explicit routing | 21 files, replaces session-global routing, conflicts with 1194+1266 (launch-dir) | Rebase iteration 7 (high risk) |
+| #1073 | LAN HTTP transport | 12 files, LAN vs Remote, conflicts with 1285 trio | Resolve iteration 7 |
 
-**Actual pending count is 6** (826,981,1073,1110,1121,1333). 40 of 46 accounted as merged (35 + fix + todo = 40), 46-40=6.
+**Actual pending count is 5** (826,981,1073,1121,1333). 41 of 46 accounted as merged (36 + fix + todo = 41), 46-41=5. Tests: 1507 passed, 3 skipped via docker compose.
 
 ---
 
@@ -103,8 +102,9 @@ docker compose run --rm --entrypoint uv unity-mcp-server run --with pytest --wit
 
 - [x] **Gate A:** Baseline `docker compose build && docker compose run --rm --entrypoint uv ... python -m pytest tests/ -v` — 1374 passed, 3 skipped
 - [x] **Gate B:** After Tier 0/1/2 merges (34 PRs) — `docker compose build` succeeded, 1499 passed, 3 skipped (after fixing pick_gameobject annotation)
-- [x] **Gate B2:** After #978 (35 PRs) — `docker compose build` succeeded, 148 passed for cli/annotations subset, full suite pending iteration 4
-- [ ] **Gate C:** After Tier 3 remaining merges — pending
+- [x] **Gate B2:** After #978 (35 PRs) — `docker compose build` succeeded, 1507 passed after fixing wait_for_editor_ready 3-tuple (c41bbfba)
+- [x] **Gate B3:** After #1110 (36 PRs) — `docker compose build` succeeded, 1507 passed, 3 skipped (3 cherry-picks for Codex CLI)
+- [ ] **Gate C:** After Tier 3 remaining merges (826,981,1073) — pending, high risk gateway/routing/LAN
 - [ ] **Gate D:** Final full suite + C# compile hints — pending
 
 ## Notes
@@ -136,7 +136,15 @@ docker compose run --rm --entrypoint uv unity-mcp-server run --with pytest --wit
 
 ### Iteration 3 (2026-08-30) — continue merges (iteration 3/100)
 - Merged #978 wait_for_compilation (880e7fbb) — now 35 PRs merged, 6 pending (826,981,1073,1110,1121,1333).
-- Fixed pick_gameobject annotation already, tests 1499 passed.
+- Fixed manage_editor.py:78 to handle 3-tuple from wait_for_editor_ready (c41bbfba) — tests 1507 passed.
 - Next: iteration 4 to tackle remaining 6 large PRs.
 
-### Iteration 4 — (current, to be filled)
+### Iteration 4 (2026-08-30) — Codex CLI (iteration 4/100)
+- Merged #1110 via 3 cherry-picks (9e1be49d, f506db68, 4f0fdaaf) — kept HEAD McpClientBase, added GetConfigureActionLabel, CodexConfigHelper updates, CODEX_HELP.md moved to website/docs/guides.
+- Docker compose build: 1507 passed, 3 skipped.
+- Deferred 1073 LAN HTTP (attempted cherry-pick 55bbe0af, got 3 conflicts, aborted via reset --hard).
+- Now 36 PRs merged, 5 pending (826,981,1073,1121,1333).
+
+### Iteration 6 (2026-08-30) — current (iteration 6/100)
+- Loop iteration 6 active, continuing from iteration 4 state.
+- Next: attempt 1073,981,826 or document as superseded/high-risk and finalize.
