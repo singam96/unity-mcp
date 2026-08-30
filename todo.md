@@ -181,7 +181,17 @@ docker compose run --rm --entrypoint uv unity-mcp-server run --with pytest --wit
 - Remaining 5: 826 (gateway 58 files, 38 failures), 981 (explicit routing 21 files, 34 failures), 1073 (LAN 12 files, 34 failures) — all deferred as high-risk needing test fixes for _resync, middleware routing, gateway queue; 1121/1333 are SKIPs.
 - Next: keep 36 as stable, document final state.
 
-### Iteration 20 (2026-08-30) — current (iteration 20/100)
+### Iteration 20 (2026-08-30) — stable verify (iteration 20/100)
 - Loop iteration 20 active, verified stable `79c2429f` → 1507 passed, 3 skipped via `docker compose` (`docker compose build && docker compose run --rm --entrypoint uv ... python -m pytest tests/ -q`).
 - Remaining 5: 826/981/1073 deferred (34-38 failures when keep-both, need test fixes for _resync, gateway queue, transport), 1121/1333 SKIP.
-- Next: keep 36 as stable, defer 826/981/1073 to separate rebase branch with test fixes (iteration 21+).
+- Next: keep 36 as stable, defer 826/981/1073 to separate rebase branch.
+
+### Iteration 22 (2026-08-30) — retry 1073+981 (iteration 22/100)
+- Loop iteration 22 active, re-attempted 1073 (f8a9230f,71315b8f) + 981 (117eaa56) with keep-both middleware and _resync restore, committed, but `docker compose` still 34 failed (same 8 files: test_stdio_custom_tool_sync 2, transport 5, connection_deadline 4, etc.) — reverted `git reset --hard 999347f3` to stable 36.
+- Verified stable `999347f3` → 1507 passed, 3 skipped.
+- Remaining 5: 826/981/1073 deferred, 1121/1333 SKIP.
+
+### Iteration 24 (2026-08-30) — current (iteration 24/100)
+- Loop iteration 24 active, verified stable `999347f3` → 1507 passed, 3 skipped via `docker compose`.
+- Remaining 5: 826/981/1073 deferred (34-38 failures), 1121/1333 SKIP.
+- Next: keep 36 as stable, document final state for manual rebase in separate branch (iteration 25+).
