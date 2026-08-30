@@ -25,8 +25,10 @@ namespace MCPForUnity.Editor.Windows.Components
     /// </summary>
 #if UNITY_6000_0_OR_NEWER
     [UxmlElement]
-#endif
+    public partial class CompatDropdownField :
+#else
     public class CompatDropdownField :
+#endif
 #if UNITY_2021_2_OR_NEWER
         DropdownField
 #else
