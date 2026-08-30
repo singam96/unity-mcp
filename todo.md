@@ -256,7 +256,12 @@ docker compose run --rm --entrypoint uv unity-mcp-server run --with pytest --wit
 - Remaining 5: 826/981/1073 deferred (34 failures), 1121/1333 SKIP.
 - Next: keep 36 as stable, defer 826/981/1073 to separate rebase branch.
 
-### Iteration 50 (2026-08-30) — current (iteration 50/100)
+### Iteration 50 (2026-08-30) — stable verify (iteration 50/100)
 - Loop iteration 50 active, verified stable `999347f3` → 1507 passed, 3 skipped via `docker compose` (`docker compose build && docker compose run --rm --entrypoint uv ... python -m pytest tests/ -q`).
 - Remaining 5: 826/981/1073 deferred (34 failures), 1121/1333 SKIP.
-- Next: keep 36 as stable, defer 826/981/1073 to separate rebase branch (iteration 51+).
+- Next: keep 36 as stable, defer 826/981/1073 to separate rebase branch.
+
+### Iteration 52 (2026-08-30) — current (iteration 52/100)
+- Loop iteration 52 active, verified stable `999347f3` → 1507 passed, 3 skipped via `docker compose` (`docker compose build && docker compose run --rm --entrypoint uv ... python -m pytest tests/ -q`).
+- Remaining 5: 826/981/1073 deferred (34 failures), 1121/1333 SKIP.
+- Next: keep 36 as stable, defer 826/981/1073 to separate rebase branch (iteration 53+).
