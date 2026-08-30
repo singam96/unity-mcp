@@ -59,7 +59,30 @@ namespace MCPForUnity.Editor.Services
             // domain reloads must NOT stop the server (and don't — this handler is gated on EditorApplication.quitting).
             try
             {
-                MCPServiceLocator.Server.StopManagedLocalHttpServer();
+                bool useHttp = EditorConfigurationCache.Instance.UseHttpTransport;
+                string scope = string.Empty;
+                try { scope = EditorPrefs.GetString(EditorPrefKeys.HttpTransportScope, string.Empty); } catch { }
+
+                bool stopped = false;
+                bool httpLocalSelected =
+                    useHttp &&
+                    (string.Equals(scope, "local", StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(scope, "lan", StringComparison.OrdinalIgnoreCase)
+                     || (string.IsNullOrEmpty(scope) && MCPServiceLocator.Server.IsLocalUrl()));
+
+                if (httpLocalSelected)
+                {
+                    // StopLocalHttpServer is already guarded to only terminate processes that look like mcp-for-unity.
+                    // If it refuses to stop (e.g. URL was edited away from local), fall back to the Unity-managed stop.
+                    stopped = MCPServiceLocator.Server.StopLocalHttpServer();
+                }
+
+                // Always attempt to stop a Unity-managed server if one exists.
+                // This covers cases where the user switched transports (e.g. to stdio) or StopLocalHttpServer refused.
+                if (!stopped)
+                {
+                    MCPServiceLocator.Server.StopManagedLocalHttpServer();
+                }
             }
             catch (Exception ex)
             {

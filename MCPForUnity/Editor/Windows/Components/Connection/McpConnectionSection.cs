@@ -23,6 +23,7 @@ namespace MCPForUnity.Editor.Windows.Components.Connection
         private enum TransportProtocol
         {
             HTTPLocal,
+            HTTPLan,
             HTTPRemote,
             Stdio
         }
@@ -34,6 +35,7 @@ namespace MCPForUnity.Editor.Windows.Components.Connection
         private VisualElement versionMismatchWarning;
         private Label versionMismatchText;
         private VisualElement httpUrlRow;
+        private VisualElement lanHttpWarning;
         private VisualElement httpServerControlRow;
         private Foldout manualCommandFoldout;
         private VisualElement httpServerCommandSection;
@@ -95,6 +97,7 @@ namespace MCPForUnity.Editor.Windows.Components.Connection
             versionMismatchWarning = Root.Q<VisualElement>("version-mismatch-warning");
             versionMismatchText = Root.Q<Label>("version-mismatch-text");
             httpUrlRow = Root.Q<VisualElement>("http-url-row");
+            lanHttpWarning = Root.Q<VisualElement>("lan-http-warning");
             httpServerControlRow = Root.Q<VisualElement>("http-server-control-row");
             manualCommandFoldout = Root.Q<Foldout>("manual-command-foldout");
             httpServerCommandSection = Root.Q<VisualElement>("http-server-command-section");
@@ -147,7 +150,12 @@ namespace MCPForUnity.Editor.Windows.Components.Connection
                     }
                 }
 
-                transportDropdown.value = scope == "remote" ? TransportProtocol.HTTPRemote : TransportProtocol.HTTPLocal;
+                transportDropdown.value = scope switch
+                {
+                    "remote" => TransportProtocol.HTTPRemote,
+                    "lan" => TransportProtocol.HTTPLan,
+                    _ => TransportProtocol.HTTPLocal
+                };
             }
 
             // Set tooltips
@@ -197,7 +205,12 @@ namespace MCPForUnity.Editor.Windows.Components.Connection
 
                 if (useHttp)
                 {
-                    string scope = selected == TransportProtocol.HTTPRemote ? "remote" : "local";
+                    string scope = selected switch
+                    {
+                        TransportProtocol.HTTPRemote => "remote",
+                        TransportProtocol.HTTPLan => "lan",
+                        _ => "local"
+                    };
                     EditorConfigurationCache.Instance.SetHttpTransportScope(scope);
                 }
 
@@ -357,7 +370,7 @@ namespace MCPForUnity.Editor.Windows.Components.Connection
         {
             var bridgeService = MCPServiceLocator.Bridge;
             bool isRunning = bridgeService.IsRunning;
-            bool showLocalServerControls = IsHttpLocalSelected();
+            bool showLocalServerControls = IsHttpLocalServerSelected();
             bool debugMode = EditorPrefs.GetBool(EditorPrefKeys.DebugLogs, false);
             // EditorConfigurationCache is the source of truth for transport selection after domain reload
             // (EditorPrefs is still used for debugMode and other UI-only state)
@@ -448,7 +461,7 @@ namespace MCPForUnity.Editor.Windows.Components.Connection
                     bool remoteUrlAllowed = !httpRemoteSelected
                         || HttpEndpointUtility.IsCurrentRemoteUrlAllowed(out remoteUrlError);
 
-                    bool httpLocalSelected = IsHttpLocalSelected();
+                    bool httpLocalSelected = IsHttpLocalServerSelected();
                     string localUrlError = null;
                     bool localUrlAllowed = !httpLocalSelected
                         || TryGetLocalHttpLaunchPolicy(out _, out localUrlError);
@@ -497,10 +510,10 @@ namespace MCPForUnity.Editor.Windows.Components.Connection
             }
 
             bool useHttp = transportDropdown != null && (TransportProtocol)transportDropdown.value != TransportProtocol.Stdio;
-            bool httpLocalSelected = IsHttpLocalSelected();
+            bool httpLocalSelected = IsHttpLocalServerSelected();
             bool isLocalHttpUrlAllowed = TryGetLocalHttpLaunchPolicy(out _, out string localUrlError);
 
-            // Only show the local-server helper UI when HTTP Local is selected.
+            // Only show the local-server helper UI when HTTP Local/LAN is selected.
             if (!useHttp || !httpLocalSelected)
             {
                 httpServerCommandSection.style.display = DisplayStyle.None;
@@ -528,8 +541,10 @@ namespace MCPForUnity.Editor.Windows.Components.Connection
                 httpServerCommandSection.EnableInClassList("http-local-invalid-url", true);
                 if (httpServerCommandHint != null)
                 {
-                    string requirements = HttpEndpointUtility.GetHttpLocalHostRequirementText();
-                    httpServerCommandHint.text = $"⚠ {localUrlError ?? $"HTTP Local requires a loopback URL ({requirements})."}";
+                    string requirements = HttpEndpointUtility.IsLanScope()
+                        ? "0.0.0.0/:: on an explicit port"
+                        : HttpEndpointUtility.GetHttpLocalHostRequirementText();
+                    httpServerCommandHint.text = $"⚠ {localUrlError ?? $"HTTP server launch requires {requirements}."}";
                     httpServerCommandHint.AddToClassList("http-local-url-error");
                 }
                 copyHttpServerCommandButton?.SetEnabled(false);
@@ -574,12 +589,15 @@ namespace MCPForUnity.Editor.Windows.Components.Connection
         private void UpdateHttpFieldVisibility()
         {
             bool useHttp = (TransportProtocol)transportDropdown.value != TransportProtocol.Stdio;
-            bool httpLocalSelected = IsHttpLocalSelected();
+            bool httpLocalSelected = IsHttpLocalServerSelected();
             bool httpRemoteSelected = transportDropdown != null && (TransportProtocol)transportDropdown.value == TransportProtocol.HTTPRemote;
+            bool httpLanSelected = transportDropdown != null && (TransportProtocol)transportDropdown.value == TransportProtocol.HTTPLan;
 
             httpUrlRow.style.display = useHttp ? DisplayStyle.Flex : DisplayStyle.None;
             httpServerControlRow.style.display = useHttp && httpLocalSelected ? DisplayStyle.Flex : DisplayStyle.None;
             unitySocketPortRow.style.display = useHttp ? DisplayStyle.None : DisplayStyle.Flex;
+            if (lanHttpWarning != null)
+                lanHttpWarning.EnableInClassList("visible", httpLanSelected);
 
             // Manual Server Launch foldout only relevant for HTTP Local
             if (manualCommandFoldout != null)
@@ -595,10 +613,22 @@ namespace MCPForUnity.Editor.Windows.Components.Connection
             return transportDropdown != null && (TransportProtocol)transportDropdown.value == TransportProtocol.HTTPLocal;
         }
 
+        private bool IsHttpLanSelected()
+        {
+            return transportDropdown != null && (TransportProtocol)transportDropdown.value == TransportProtocol.HTTPLan;
+        }
+
+        private bool IsHttpLocalServerSelected()
+        {
+            return IsHttpLocalSelected() || IsHttpLanSelected();
+        }
+
         private bool TryGetLocalHttpLaunchPolicy(out string localBaseUrl, out string localUrlError)
         {
-            localBaseUrl = HttpEndpointUtility.GetLocalBaseUrl();
-            return HttpEndpointUtility.IsHttpLocalUrlAllowedForLaunch(localBaseUrl, out localUrlError);
+            localBaseUrl = HttpEndpointUtility.GetLocalServerLaunchBaseUrl();
+            return IsHttpLanSelected()
+                ? HttpEndpointUtility.IsHttpLanUrlAllowedForLaunch(localBaseUrl, out localUrlError)
+                : HttpEndpointUtility.IsHttpLocalUrlAllowedForLaunch(localBaseUrl, out localUrlError);
         }
 
         private void SyncUrlFieldToScope()
@@ -621,7 +651,7 @@ namespace MCPForUnity.Editor.Windows.Components.Connection
                 return;
             }
 
-            bool httpLocalSelected = IsHttpLocalSelected();
+            bool httpLocalSelected = IsHttpLocalServerSelected();
             bool localUrlAllowedForLaunch = TryGetLocalHttpLaunchPolicy(out _, out string localUrlError);
             bool canStartLocalServer = httpLocalSelected && localUrlAllowedForLaunch;
             bool localServerRunning = false;
@@ -693,7 +723,7 @@ namespace MCPForUnity.Editor.Windows.Components.Connection
             try
             {
                 // Check if a local server is running.
-                bool serverRunning = IsHttpLocalSelected() && MCPServiceLocator.Server.IsLocalHttpServerReachable();
+                bool serverRunning = IsHttpLocalServerSelected() && MCPServiceLocator.Server.IsLocalHttpServerReachable();
 
                 if (serverRunning)
                 {
@@ -877,7 +907,7 @@ namespace MCPForUnity.Editor.Windows.Components.Connection
                         return;
                     }
 
-                    bool httpLocalSelected = IsHttpLocalSelected();
+                    bool httpLocalSelected = IsHttpLocalServerSelected();
                     if (httpLocalSelected
                         && !TryGetLocalHttpLaunchPolicy(out _, out string localPolicyError))
                     {
@@ -1254,6 +1284,7 @@ namespace MCPForUnity.Editor.Windows.Components.Connection
                 ConfiguredTransport.Stdio => "stdio",
                 ConfiguredTransport.Http => "HTTP Local",
                 ConfiguredTransport.HttpRemote => "HTTP Remote",
+                ConfiguredTransport.HttpLan => "HTTP LAN",
                 _ => "unknown"
             };
         }
