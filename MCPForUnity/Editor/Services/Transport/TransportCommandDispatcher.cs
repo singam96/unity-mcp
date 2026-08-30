@@ -62,8 +62,21 @@ namespace MCPForUnity.Editor.Services.Transport
             }
         }
 
-        private static readonly Dictionary<string, PendingCommand> Pending = new Dictionary<string, PendingCommand>();
-        private static readonly object PendingLock = new object();
+        private static readonly Dictionary<string, PendingCommand> Pending = new();
+        /// <summary>
+        /// Maps command JSON content hash → pending ID for deduplication.
+        /// When a duplicate command arrives while an identical one is still pending,
+        /// the duplicate shares the original's TaskCompletionSource instead of queueing again.
+        /// </summary>
+        private static readonly Dictionary<string, string> ContentHashToPendingId = new();
+        private static readonly object PendingLock = new();
+        /// <summary>
+        /// Maximum age of a pending command that is still eligible for dedup matching.
+        /// If the original command hangs (stuck gateway job, lost transport, etc.) waiters
+        /// must not pile up indefinitely on a dead TaskCompletionSource — after this
+        /// window, new identical commands create a fresh pending entry instead.
+        /// </summary>
+        private static readonly TimeSpan DedupTtl = TimeSpan.FromSeconds(60);
         private static bool updateHooked;
         private static bool initialised;
 
@@ -85,21 +98,6 @@ namespace MCPForUnity.Editor.Services.Transport
         }
 
         /// <summary>
-        /// Number of commands queued for the main thread. Read from transport threads to report how
-        /// much work is stuck behind a main-thread stall.
-        /// </summary>
-        internal static int PendingCount
-        {
-            get
-            {
-                lock (PendingLock)
-                {
-                    return Pending.Count;
-                }
-            }
-        }
-
-        /// <summary>
         /// Schedule a command for execution on the Unity main thread and await its JSON response.
         /// </summary>
         public static Task<string> ExecuteCommandJsonAsync(string commandJson, CancellationToken cancellationToken)
@@ -110,6 +108,50 @@ namespace MCPForUnity.Editor.Services.Transport
             }
 
             EnsureInitialised();
+
+            // --- Deduplication: if an identical command is already pending, share its result ---
+            var contentHash = ComputeContentHash(commandJson);
+
+            lock (PendingLock)
+            {
+                if (contentHash != null
+                    && ContentHashToPendingId.TryGetValue(contentHash, out var existingId)
+                    && Pending.TryGetValue(existingId, out var existingPending)
+                    && !existingPending.CancellationToken.IsCancellationRequested
+                    && (DateTime.UtcNow - existingPending.QueuedAt) < DedupTtl)
+                {
+                    McpLog.Info($"[Dispatcher] Dedup: identical command already pending (id={existingId}). Sharing result.");
+                    // Propagate the NEW caller's cancellation into a linked waiter so each dedup
+                    // waiter can bail independently. Without this, a cancelled caller still blocks
+                    // on the original command's TCS — which is the root cause of stall-under-load.
+                    if (cancellationToken.CanBeCanceled)
+                    {
+                        var waiterTcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        var waiterReg = cancellationToken.Register(() => waiterTcs.TrySetCanceled(cancellationToken));
+                        existingPending.CompletionSource.Task.ContinueWith(t =>
+                        {
+                            waiterReg.Dispose();
+                            if (t.IsCanceled) waiterTcs.TrySetCanceled();
+                            else if (t.IsFaulted) waiterTcs.TrySetException(t.Exception!.InnerExceptions);
+                            else waiterTcs.TrySetResult(t.Result);
+                        }, TaskScheduler.Default);
+                        return waiterTcs.Task;
+                    }
+                    return existingPending.CompletionSource.Task;
+                }
+                // Stale dedup entry (TTL exceeded or cancelled original): drop the mapping
+                // so the code below creates a fresh PendingCommand instead of piling onto
+                // a dead TCS.
+                if (contentHash != null
+                    && ContentHashToPendingId.TryGetValue(contentHash, out var staleId)
+                    && Pending.TryGetValue(staleId, out var stalePending)
+                    && (stalePending.CancellationToken.IsCancellationRequested
+                        || (DateTime.UtcNow - stalePending.QueuedAt) >= DedupTtl))
+                {
+                    McpLog.Warn($"[Dispatcher] Dedup entry stale for id={staleId} (age={(DateTime.UtcNow - stalePending.QueuedAt).TotalSeconds:F0}s). Releasing hash for fresh dispatch.");
+                    ContentHashToPendingId.Remove(contentHash);
+                }
+            }
 
             var id = Guid.NewGuid().ToString("N");
             var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -123,6 +165,8 @@ namespace MCPForUnity.Editor.Services.Transport
             lock (PendingLock)
             {
                 Pending[id] = pending;
+                if (contentHash != null)
+                    ContentHashToPendingId[contentHash] = id;
             }
 
             // Proactively wake up the main thread execution loop. This improves responsiveness
@@ -318,7 +362,7 @@ namespace MCPForUnity.Editor.Services.Transport
                 {
                     status = "error",
                     error = "Invalid JSON format",
-                    receivedText = commandText.Length > 50 ? commandText.Substring(0, 50) + "..." : commandText
+                    receivedText = commandText.Length > 50 ? commandText[..50] + "..." : commandText
                 };
                 pending.TrySetResult(JsonConvert.SerializeObject(invalidJsonResponse));
                 RemovePending(id, pending);
@@ -377,6 +421,54 @@ namespace MCPForUnity.Editor.Services.Transport
                 }
 
                 var logType = resourceMeta != null ? "resource" : toolMeta != null ? "tool" : "unknown";
+
+                // --- Tier-aware dispatch ---
+                var declaredTier = CommandRegistry.GetToolTier(command.type);
+                var effectiveTier = CommandClassifier.Classify(command.type, declaredTier, parameters);
+
+                if (effectiveTier != ExecutionTier.Instant)
+                {
+                    // Route Smooth/Heavy through the gateway queue for tier-aware scheduling,
+                    // heavy exclusivity, domain-reload guards, and CancellationToken support.
+                    var job = CommandGatewayState.Queue.SubmitSingle(command.type, parameters, "transport");
+                    var gatewaySw = McpLogRecord.IsEnabled ? System.Diagnostics.Stopwatch.StartNew() : null;
+
+                    async void AwaitGateway()
+                    {
+                        try
+                        {
+                            var gatewayResult = await CommandGatewayState.AwaitJob(job);
+                            gatewaySw?.Stop();
+                            if (gatewayResult is IMcpResponse mcpResp && !mcpResp.Success)
+                            {
+                                McpLogRecord.Log(command.type, parameters, logType, "ERROR", gatewaySw?.ElapsedMilliseconds ?? 0, (gatewayResult as ErrorResponse)?.Error);
+                                var errResponse = new { status = "error", result = gatewayResult, _queue = new { ticket = job.Ticket, tier = job.Tier.ToString().ToLowerInvariant(), queued = true } };
+                                pending.TrySetResult(JsonConvert.SerializeObject(errResponse));
+                            }
+                            else
+                            {
+                                McpLogRecord.Log(command.type, parameters, logType, "SUCCESS", gatewaySw?.ElapsedMilliseconds ?? 0, null);
+                                var okResponse = new { status = "success", result = gatewayResult, _queue = new { ticket = job.Ticket, tier = job.Tier.ToString().ToLowerInvariant(), queued = true } };
+                                pending.TrySetResult(JsonConvert.SerializeObject(okResponse));
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            gatewaySw?.Stop();
+                            McpLogRecord.Log(command.type, parameters, logType, "ERROR", gatewaySw?.ElapsedMilliseconds ?? 0, ex.Message);
+                            pending.TrySetResult(SerializeError(ex.Message, command.type, ex.StackTrace));
+                        }
+                        finally
+                        {
+                            EditorApplication.delayCall += () => RemovePending(id, pending);
+                        }
+                    }
+
+                    AwaitGateway();
+                    return;
+                }
+
+                // --- Instant tier: execute directly (existing path) ---
                 var sw = McpLogRecord.IsEnabled ? System.Diagnostics.Stopwatch.StartNew() : null;
                 var result = CommandRegistry.ExecuteCommand(command.type, parameters, pending.CompletionSource);
 
@@ -396,7 +488,7 @@ namespace MCPForUnity.Editor.Services.Transport
                             logStatus = "ERROR";
                             logError = t.Exception?.InnerException?.Message;
                         }
-                        else if (t.Status == TaskStatus.RanToCompletion && t.Result != null)
+                        else if (t.IsCompletedSuccessfully && t.Result != null)
                         {
                             try
                             {
@@ -427,8 +519,8 @@ namespace MCPForUnity.Editor.Services.Transport
                 }
                 McpLogRecord.Log(command.type, parameters, logType, syncLogStatus, sw?.ElapsedMilliseconds ?? 0, syncLogError);
 
-                var response = new { status = "success", result };
-                pending.TrySetResult(JsonConvert.SerializeObject(response));
+                var directResponse = new { status = "success", result };
+                pending.TrySetResult(JsonConvert.SerializeObject(directResponse));
                 RemovePending(id, pending);
             }
             catch (Exception ex)
@@ -444,9 +536,9 @@ namespace MCPForUnity.Editor.Services.Transport
             PendingCommand pending = null;
             lock (PendingLock)
             {
-                if (Pending.TryGetValue(id, out pending))
+                if (Pending.Remove(id, out pending))
                 {
-                    Pending.Remove(id);
+                    CleanContentHash(id);
                     UnhookUpdateIfIdle();
                 }
             }
@@ -460,10 +552,46 @@ namespace MCPForUnity.Editor.Services.Transport
             lock (PendingLock)
             {
                 Pending.Remove(id);
+                CleanContentHash(id);
                 UnhookUpdateIfIdle();
             }
 
             pending.Dispose();
+        }
+
+        /// <summary>
+        /// Remove the content hash entry that points to the given pending ID.
+        /// Must be called under PendingLock.
+        /// </summary>
+        private static void CleanContentHash(string pendingId)
+        {
+            string hashToRemove = null;
+            foreach (var kvp in ContentHashToPendingId)
+            {
+                if (kvp.Value == pendingId)
+                {
+                    hashToRemove = kvp.Key;
+                    break;
+                }
+            }
+            if (hashToRemove != null)
+                ContentHashToPendingId.Remove(hashToRemove);
+        }
+
+        /// <summary>
+        /// Compute a stable content hash for command deduplication.
+        /// Returns null for non-JSON commands (e.g., "ping") which are cheap enough to not need dedup.
+        /// </summary>
+        private static string ComputeContentHash(string commandJson)
+        {
+            if (string.IsNullOrWhiteSpace(commandJson)) return null;
+            var trimmed = commandJson.Trim();
+            if (!trimmed.StartsWith("{")) return null; // Skip non-JSON (ping, etc.)
+
+            // Use the raw JSON string as the hash key. Retries from the same client produce
+            // byte-identical JSON, so this is both fast and correct for the dedup use case.
+            // For very large payloads, a proper hash could be used, but MCP commands are small.
+            return trimmed;
         }
 
         private static string SerializeError(string message, string commandType = null, string stackTrace = null)

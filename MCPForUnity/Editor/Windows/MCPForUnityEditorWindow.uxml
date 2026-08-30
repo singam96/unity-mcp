@@ -17,6 +17,7 @@
             <uie:ToolbarToggle name="assetgen-tab" text="Generative" />
             <uie:ToolbarToggle name="deps-tab" text="Deps" />
             <uie:ToolbarToggle name="advanced-tab" text="Advanced" />
+            <uie:ToolbarToggle name="queue-tab" text="Queue" />
         </uie:Toolbar>
         <ui:ScrollView name="clients-panel" class="panel-scroll" style="flex-grow: 1;">
             <ui:VisualElement name="clients-container" class="section-stack" />
@@ -35,6 +36,9 @@
         </ui:ScrollView>
         <ui:ScrollView name="assetgen-panel" class="panel-scroll hidden" style="flex-grow: 1;">
             <ui:VisualElement name="assetgen-container" class="section-stack" />
+        </ui:ScrollView>
+        <ui:ScrollView name="queue-panel" class="panel-scroll hidden" style="flex-grow: 1;">
+            <ui:VisualElement name="queue-container" class="section-stack" />
         </ui:ScrollView>
     </ui:VisualElement>
 </ui:UXML>

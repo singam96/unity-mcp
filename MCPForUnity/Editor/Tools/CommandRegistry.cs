@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using MCPForUnity.Editor.Helpers;
 using MCPForUnity.Editor.Resources;
-using MCPForUnity.Runtime.Helpers;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -19,14 +19,16 @@ namespace MCPForUnity.Editor.Tools
         public string CommandName { get; }
         public Func<JObject, object> SyncHandler { get; }
         public Func<JObject, Task<object>> AsyncHandler { get; }
+        public ExecutionTier Tier { get; }
 
         public bool IsAsync => AsyncHandler != null;
 
-        public HandlerInfo(string commandName, Func<JObject, object> syncHandler, Func<JObject, Task<object>> asyncHandler)
+        public HandlerInfo(string commandName, Func<JObject, object> syncHandler, Func<JObject, Task<object>> asyncHandler, ExecutionTier tier = ExecutionTier.Smooth)
         {
             CommandName = commandName;
             SyncHandler = syncHandler;
             AsyncHandler = asyncHandler;
+            Tier = tier;
         }
     }
 
@@ -36,7 +38,7 @@ namespace MCPForUnity.Editor.Tools
     /// </summary>
     public static class CommandRegistry
     {
-        private static readonly Dictionary<string, HandlerInfo> _handlers = new Dictionary<string, HandlerInfo>();
+        private static readonly Dictionary<string, HandlerInfo> _handlers = new();
         private static bool _initialized = false;
 
         /// <summary>
@@ -58,19 +60,9 @@ namespace MCPForUnity.Editor.Tools
         /// </summary>
         private static void AutoDiscoverCommands()
         {
-            // AssetImportWorker is a separate Editor subprocess. It doesn't host the MCP
-            // transport so the registry is unused there, and Mono can hard-crash inside
-            // GetCustomAttribute<T>() when scanning types whose owning assembly hasn't
-            // finished domain-reload bookkeeping in the worker. Skip the scan there
-            // entirely. See issue #1134.
-            if (IsRunningInAssetImportWorker())
-            {
-                return;
-            }
-
             try
             {
-                var allTypes = UnityAssembliesCompat.GetLoadedAssemblies()
+                var allTypes = AppDomain.CurrentDomain.GetAssemblies()
                     .Where(a => !a.IsDynamic)
                     .SelectMany(a =>
                     {
@@ -80,7 +72,7 @@ namespace MCPForUnity.Editor.Tools
                     .ToList();
 
                 // Discover tools
-                var toolTypes = allTypes.Where(t => HasAttributeSafe<McpForUnityToolAttribute>(t));
+                var toolTypes = allTypes.Where(t => t.GetCustomAttribute<McpForUnityToolAttribute>() != null);
                 int toolCount = 0;
                 foreach (var type in toolTypes)
                 {
@@ -89,7 +81,7 @@ namespace MCPForUnity.Editor.Tools
                 }
 
                 // Discover resources
-                var resourceTypes = allTypes.Where(t => HasAttributeSafe<McpForUnityResourceAttribute>(t));
+                var resourceTypes = allTypes.Where(t => t.GetCustomAttribute<McpForUnityResourceAttribute>() != null);
                 int resourceCount = 0;
                 foreach (var type in resourceTypes)
                 {
@@ -105,64 +97,6 @@ namespace MCPForUnity.Editor.Tools
             }
         }
 
-        private static bool HasAttributeSafe<T>(Type type) where T : Attribute
-        {
-            try
-            {
-                return type.GetCustomAttribute<T>() != null;
-            }
-            catch
-            {
-                // Type metadata can be in a half-loaded state during domain reload; treat
-                // those as "no attribute" rather than aborting the whole scan.
-                return false;
-            }
-        }
-
-        private static bool? _cachedIsAssetImportWorker;
-
-        private static bool IsRunningInAssetImportWorker()
-        {
-            if (_cachedIsAssetImportWorker.HasValue)
-                return _cachedIsAssetImportWorker.Value;
-
-            bool result = false;
-            try
-            {
-                // AssetDatabase.IsAssetImportWorkerProcess() exists on Unity 2020.2+ but the
-                // visibility has shifted between versions. Look it up reflectively so we
-                // tolerate either signature without conditional compilation.
-                var method = typeof(UnityEditor.AssetDatabase).GetMethod(
-                    "IsAssetImportWorkerProcess",
-                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-                if (method != null && method.GetParameters().Length == 0)
-                {
-                    result = method.Invoke(null, null) is bool b && b;
-                }
-            }
-            catch
-            {
-                // Reflection problems shouldn't break startup; fall through to the cmdline check.
-            }
-
-            if (!result)
-            {
-                try
-                {
-                    string cmd = Environment.CommandLine ?? string.Empty;
-                    if (cmd.IndexOf("-importWorker", StringComparison.OrdinalIgnoreCase) >= 0
-                        || cmd.IndexOf("AssetImportWorker", StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        result = true;
-                    }
-                }
-                catch { }
-            }
-
-            _cachedIsAssetImportWorker = result;
-            return result;
-        }
-
         /// <summary>
         /// Register a command type (tool or resource) with the registry.
         /// Returns true if successfully registered, false otherwise.
@@ -171,17 +105,20 @@ namespace MCPForUnity.Editor.Tools
         {
             string commandName;
             string typeLabel = isResource ? "resource" : "tool";
+            ExecutionTier tier = ExecutionTier.Smooth; // default
 
             // Get command name from appropriate attribute
             if (isResource)
             {
                 var resourceAttr = type.GetCustomAttribute<McpForUnityResourceAttribute>();
                 commandName = resourceAttr.ResourceName;
+                tier = ExecutionTier.Instant; // Resources are read-only
             }
             else
             {
                 var toolAttr = type.GetCustomAttribute<McpForUnityToolAttribute>();
                 commandName = toolAttr.CommandName;
+                tier = toolAttr.Tier;
             }
 
             // Auto-generate command name if not explicitly provided
@@ -224,7 +161,7 @@ namespace MCPForUnity.Editor.Tools
                 if (typeof(Task).IsAssignableFrom(method.ReturnType))
                 {
                     var asyncHandler = CreateAsyncHandlerDelegate(method, commandName);
-                    handlerInfo = new HandlerInfo(commandName, null, asyncHandler);
+                    handlerInfo = new HandlerInfo(commandName, null, asyncHandler, tier);
                 }
                 else
                 {
@@ -232,7 +169,7 @@ namespace MCPForUnity.Editor.Tools
                         typeof(Func<JObject, object>),
                         method
                     );
-                    handlerInfo = new HandlerInfo(commandName, handler, null);
+                    handlerInfo = new HandlerInfo(commandName, handler, null, tier);
                 }
 
                 _handlers[commandName] = handlerInfo;
@@ -257,6 +194,17 @@ namespace MCPForUnity.Editor.Tools
                 );
             }
             return handler;
+        }
+
+        /// <summary>
+        /// Get the declared ExecutionTier for a registered tool.
+        /// Returns Smooth as default for unknown tools.
+        /// </summary>
+        public static ExecutionTier GetToolTier(string commandName)
+        {
+            if (_handlers.TryGetValue(commandName, out var handler))
+                return handler.Tier;
+            return ExecutionTier.Smooth;
         }
 
         /// <summary>
@@ -302,18 +250,7 @@ namespace MCPForUnity.Editor.Tools
                 throw new InvalidOperationException($"Handler for '{commandName}' does not provide a synchronous implementation");
             }
 
-            object result = handlerInfo.SyncHandler(@params);
-            if (result is Task<object> returnedTask)
-            {
-                ExecuteAsyncHandler(
-                    new HandlerInfo(commandName, null, _ => returnedTask),
-                    @params,
-                    commandName,
-                    tcs);
-                return null;
-            }
-
-            return result;
+            return handlerInfo.SyncHandler(@params);
         }
 
         /// <summary>
@@ -324,31 +261,46 @@ namespace MCPForUnity.Editor.Tools
         /// <param name="params">Parameters to pass to the command (optional).</param>
         public static Task<object> InvokeCommandAsync(string commandName, JObject @params)
         {
+            return InvokeCommandAsync(commandName, @params, CancellationToken.None);
+        }
+
+        /// <summary>
+        /// Execute a command handler with cancellation support.
+        /// The token is checked before invocation and, for async handlers, used to
+        /// wrap the returned task so cancellation propagates even if the handler
+        /// doesn't natively support it.
+        /// </summary>
+        public static async Task<object> InvokeCommandAsync(string commandName, JObject @params, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+
             var handlerInfo = GetHandlerInfo(commandName);
             var payload = @params ?? new JObject();
 
             if (handlerInfo.IsAsync)
             {
                 if (handlerInfo.AsyncHandler == null)
-                {
                     throw new InvalidOperationException($"Async handler for '{commandName}' is not configured correctly");
-                }
 
-                return handlerInfo.AsyncHandler(payload);
+                var task = handlerInfo.AsyncHandler(payload);
+
+                // Race the handler task against the cancellation token.
+                // This ensures we stop waiting even if the handler ignores cancellation.
+                var tcs = new TaskCompletionSource<bool>();
+                using (ct.Register(() => tcs.TrySetResult(true)))
+                {
+                    var completed = await Task.WhenAny(task, tcs.Task).ConfigureAwait(true);
+                    ct.ThrowIfCancellationRequested();
+                    return await task.ConfigureAwait(true);
+                }
             }
 
             if (handlerInfo.SyncHandler == null)
-            {
                 throw new InvalidOperationException($"Handler for '{commandName}' does not provide a synchronous implementation");
-            }
 
+            ct.ThrowIfCancellationRequested();
             object result = handlerInfo.SyncHandler(payload);
-            if (result is Task<object> returnedTask)
-            {
-                return returnedTask;
-            }
-
-            return Task.FromResult(result);
+            return result;
         }
 
         /// <summary>
@@ -379,7 +331,7 @@ namespace MCPForUnity.Editor.Tools
                     return null;
                 }
 
-                if (!(rawResult is Task task))
+                if (rawResult is not Task task)
                 {
                     throw new InvalidOperationException(
                         $"Async handler '{commandName}' returned an object that is not a Task"
