@@ -23,6 +23,9 @@ namespace MCPForUnity.Editor.Windows.Components
     ///
     /// Usable from UXML via the nested UxmlFactory (e.g. &lt;mcpx:CompatDropdownField /&gt;).
     /// </summary>
+#if UNITY_6000_0_OR_NEWER
+    [UxmlElement]
+#endif
     public class CompatDropdownField :
 #if UNITY_2021_2_OR_NEWER
         DropdownField
@@ -39,11 +42,16 @@ namespace MCPForUnity.Editor.Windows.Components
         {
         }
 
+#if UNITY_6000_0_OR_NEWER
+        // Unity 6.5+ uses UxmlElement/UxmlAttribute — UxmlTraits is deprecated and attributes are ignored
+        // No factory needed; the [UxmlElement] on the base DropdownField handles instantiation
+#else
         public new class UxmlFactory : UxmlFactory<CompatDropdownField, UxmlTraits> { }
 
         public new class UxmlTraits : DropdownField.UxmlTraits
         {
         }
+#endif
 #else
         private readonly List<string> m_Choices = new List<string>();
         private int m_Index = -1;
