@@ -797,6 +797,8 @@ namespace MCPForUnity.Editor.Tools
             string cameraName = Camera.main != null ? Camera.main.name : "composited";
             string message = $"Screenshot captured to '{result.ProjectRelativePath}' (camera: {cameraName}).";
             return new SuccessResponse(message, BuildScreenshotResponseData(result, cameraName, includeImage: true));
+        }
+
         private static Dictionary<string, object> BuildPickView(
             Camera camera,
             string captureSource,
