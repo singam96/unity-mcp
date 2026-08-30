@@ -11,7 +11,7 @@ namespace MCPForUnity.Editor.Tools.Graphics
 {
     internal static class SkyboxOps
     {
-        static Cubemap CustomReflectionTexture
+        static Texture CustomReflectionTexture
         {
             get =>
 #if UNITY_2022_1_OR_NEWER
@@ -23,7 +23,7 @@ namespace MCPForUnity.Editor.Tools.Graphics
 #if UNITY_2022_1_OR_NEWER
                 RenderSettings.customReflectionTexture = value;
 #else
-                RenderSettings.customReflection = value;
+                RenderSettings.customReflection = value as Cubemap;
 #endif
             }
         }

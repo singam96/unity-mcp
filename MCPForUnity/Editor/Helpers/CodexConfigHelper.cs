@@ -5,6 +5,7 @@ using System.Linq;
 using MCPForUnity.Editor.Constants;
 using MCPForUnity.Editor.Services;
 using MCPForUnity.External.Tommy;
+using UnityEditor;
 
 namespace MCPForUnity.Editor.Helpers
 {

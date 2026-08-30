@@ -469,7 +469,7 @@ namespace MCPForUnity.Editor.Tools
                 }
 
                 string batchId = BuildJobStore.CreateBatchId();
-                var batch = new BatchJob(batchId);
+                var batch = new Build.BatchJob(batchId);
                 batch.State = BuildJobState.Building;
                 BuildJobStore.AddBatchJob(batch);
 
@@ -523,7 +523,7 @@ namespace MCPForUnity.Editor.Tools
                 }
 
                 string batchId = BuildJobStore.CreateBatchId();
-                var batch = new BatchJob(batchId);
+                var batch = new Build.BatchJob(batchId);
                 batch.State = BuildJobState.Building;
                 BuildJobStore.AddBatchJob(batch);
 

@@ -78,6 +78,14 @@ namespace MCPForUnity.Editor.Services.Transport
         /// </summary>
         private static readonly TimeSpan DedupTtl = TimeSpan.FromSeconds(60);
         private static bool updateHooked;
+
+        internal static int PendingCount
+        {
+            get
+            {
+                lock (PendingLock) return Pending.Count;
+            }
+        }
         private static bool initialised;
 
         static TransportCommandDispatcher()

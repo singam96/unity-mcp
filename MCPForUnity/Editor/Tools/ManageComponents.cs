@@ -828,7 +828,7 @@ namespace MCPForUnity.Editor.Tools
                     if (candidate == null)
                         continue;
 
-                    int instanceId = candidate.GetInstanceID();
+                    int instanceId = candidate.GetInstanceIDCompat();
                     if (!seen.Add(instanceId))
                         continue;
 
@@ -959,7 +959,7 @@ namespace MCPForUnity.Editor.Tools
 
             return new
             {
-                instance_id = obj.GetInstanceID(),
+                instance_id = obj.GetInstanceIDCompat(),
                 name = obj.name,
                 type = obj.GetType().FullName,
                 path = gameObject != null ? GameObjectLookup.GetGameObjectPath(gameObject) : null,
