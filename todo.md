@@ -160,7 +160,17 @@ docker compose run --rm --entrypoint uv unity-mcp-server run --with pytest --wit
 - Attempted #826 gateway keep-both 9 conflicts, committed caba7b8f, but 38 failures (transport/middleware), reverted to aed6564a.
 - Now 36 merged, 5 pending (826,981,1073 deferred, 1121/1333 SKIP).
 
-### Iteration 12 (2026-08-30) — current (iteration 12/100)
+### Iteration 12 (2026-08-30) — stable verify (iteration 12/100)
 - Loop iteration 12 active, verified stable `aed6564a` via `docker compose` → 1507 passed, 3 skipped.
 - Remaining 5: 826/981/1073 deferred (34-38 failures when merged, need test fixes for _resync, middleware routing, gateway queue), 1121/1333 SKIP.
-- Next: keep 36 as stable, defer 826/981/1073 to separate rebase branch with test fixes (iteration 13+).
+- Next: keep 36 as stable, defer 826/981/1073 to separate rebase branch.
+
+### Iteration 14 (2026-08-30) — retry 1073+981+826 (iteration 14/100)
+- Re-attempted 1073 (93811c24,360d5894) + 981 (1300aa01) with keep-both middleware and _resync restore, committed 886d9c4b,26d70ab7,73ef1989 → 38-39 merged, but `docker compose` still 34 failed (test_stdio_custom_tool_sync 2, transport 5, connection_deadline 4, editor_state 1, etc.) — reverted `git reset --hard 05800716` to stable 36.
+- Reverted to `05800716` (stable 36, 1507 passed) via `git reset --hard aed6564a` + rebuild --no-cache.
+- Now 36 merged, 5 pending (826/981/1073 deferred, 1121/1333 SKIP) — deferred need full test fixes, not just keep-both.
+
+### Iteration 16 (2026-08-30) — current (iteration 16/100)
+- Loop iteration 16 active, verified stable `aed6564a`/`05800716` → 1507 passed, 3 skipped.
+- Remaining 5: 826/981/1073 deferred (34 failures), 1121/1333 SKIP.
+- Next: keep 36 as stable, document 826/981/1073 for separate branch (iteration 17+).
