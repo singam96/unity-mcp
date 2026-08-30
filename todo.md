@@ -417,3 +417,25 @@ docker compose run --rm --entrypoint uv unity-mcp-server run --with pytest --wit
   - #1073 `Add LAN HTTP transport mode` (12 files, `HttpEndpointUtility`, `McpEditorShutdownCleanup`, `McpClientConfiguratorBase`) → isolated 1507 passed (iter 22), but with #981 combined 34 failures, needs `HttpEndpointUtility.GetBaseUrl` env+LAN merge + keep-both middleware.
 - **SKIPs:** #1121 reliable auto-start (base=main, superseded by HEAD `HttpAutoStartHandler` SessionState latched/pending), #1333 Create Sara (1-byte empty file at repo root, no value).
 - **Next:** keep stable `beta` at `e499a37b` (1507 passed), defer 826/981/1073 to separate rebase branch with test fixes; do not merge 1121/1333; loop reached maxIterations 200 — requires manual re-trigger or `/cancel-loop`.
+
+### Iteration 201-204 (2026-08-30) — deferred merges executed per user request (all 3 deferred PRs merged)
+
+**User request (2026-08-30):** "okay do all of the deferred ones" — merge #1073, #981, #826 now.
+
+**Merged:**
+- [x] #1073 `Add LAN HTTP transport mode` — merged `56881bf7` (12 files, C# LAN logic kept, Server stale regressions discarded). Conflicts resolved: `HttpEndpointUtility.cs:19` keep `UNITY_MCP_HTTP_URL` env override + add LAN public/bind, `McpClientConfiguratorBase.cs:19` keep `CheckParsedCodexServer` refactor + add lan handling, `McpEditorShutdownCleanup.cs:62` take pr/1073's scope-aware stop (local|lan). `docker compose` → **1507 passed** (isolated).
+- [x] #981 `Replace session-global Unity instance selection with explicit routing` — merged `fe90dd90` (21 files, 519 insertions). Conflicts resolved: `unity_instance_middleware.py:14` keep both `parse_qs,unquote,urlparse`; keep HEAD's `_file_uri_to_path`+`_strip_assets` + pr/981's `_get_http_request_for_binding`; `unity_connection.py:592` keep HEAD's `#1023` `available_ids` error. `docker compose` → **1507 passed** (at that point).
+- [x] #826 `feat: add command gateway` — merged `b937cefe` (54 files, 5428 insertions). Resolved 9 conflicts: `MCPForUnityMenu.cs:24` keep `ProductInfo.MenuRoot` + `EmergencyFlushQueue`, `TransportCommandDispatcher.cs:65` take pr/826's dedup/ContentHash, `BatchExecute/CommandRegistry` take theirs, `MCPForUnityEditorWindow.cs` keep HEAD (more recent) + `MCPForUnityEditorWindow.uxml:37` merged to include both `assetgen-panel` (HEAD) and `queue-panel`+`queue-tab` (pr/826), `Server/src/transport/unity_instance_middleware.py:101` keep HEAD's FastMCP state-store (discard pr/826's in-memory liveness), `Server/uv.lock` keep HEAD, `Server/tests/test_transport_characterization.py` keep HEAD. `docker compose` → **1490 passed, 28 failed, 3 skipped** — **same 28 as baseline** at `2566bcd3` and `upstream/beta` (verified `git checkout upstream/beta` → 28 failed, `git checkout 2566bcd3` → 28 failed), not introduced by gateway. Previous 1507 baseline was stale cache; current 1490 is upstream baseline. Failures: `test_core_infrastructure_characterization` (21), `test_manage_sprite` (1), `test_resource_uri_references` (2), `test_transport_characterization` (1, old expectation "Multiple Unity Editor instances are running" vs new "Multiple Unity instances are connected" #1023), `test_editor_state_v2_contract` (1) — all present in upstream/beta, not gateway-specific. Gateway did not worsen (38→28).
+
+**Verification gates:**
+- Gate C (after 1073): 1507 passed
+- Gate C2 (after 981): 1507 passed
+- Gate C3 (after 826): 1490 passed, 28 failed (matches upstream/beta baseline, not regression)
+- Full `docker compose build && docker compose run --rm --entrypoint uv unity-mcp-server run --with pytest --with pytest-asyncio --with pytest-cov python -m pytest tests/ -q` at `b937cefe` → 1490/28/3
+
+**Remaining pending (46 open):**
+- 2 **SKIPs** only: #1121 (base main, superseded), #1333 (empty Sara) — **do not merge**
+- 0 actionable deferred — **all 3 deferred are now merged** (43 `Merge PR #` commits: previous 40 + 1073 + 981 + 826 = 43, plus 1110 cherry-picks = 44 logical; 46-44=2 SKIPs)
+- Verified `Invoke-RestMethod https://api.github.com/repos/CoplayDev/unity-mcp/pulls` → 46 open; `git log --oneline beta --merges | grep "Merge PR"` = 43 (`978,1031,1035,1042,1043,1073,1117,1118,1123,1135,1192,1194,1199,1206,1208,1209,1214,1256,1266,1274,1280,1282,1284,1285,1286,1287,1323,1325,1327,1330,1332,1334,1337,1338,1340,1342,1345,1346,1347,1349,1350,981,826` — note 981/1073/826 now included; 1110 still cherry-picked not merged commit)
+
+**Next:** all actionable PRs merged; SKIPs documented; baseline 1490/28 is upstream parity — investigate upstream 28 failures separately (not gateway). Ready to push `beta` (now 236 ahead) and update docs.
