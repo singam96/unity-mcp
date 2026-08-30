@@ -170,7 +170,13 @@ docker compose run --rm --entrypoint uv unity-mcp-server run --with pytest --wit
 - Reverted to `05800716` (stable 36, 1507 passed) via `git reset --hard aed6564a` + rebuild --no-cache.
 - Now 36 merged, 5 pending (826/981/1073 deferred, 1121/1333 SKIP) — deferred need full test fixes, not just keep-both.
 
-### Iteration 16 (2026-08-30) — current (iteration 16/100)
+### Iteration 16 (2026-08-30) — stable verify (iteration 16/100)
 - Loop iteration 16 active, verified stable `aed6564a`/`05800716` → 1507 passed, 3 skipped.
 - Remaining 5: 826/981/1073 deferred (34 failures), 1121/1333 SKIP.
-- Next: keep 36 as stable, document 826/981/1073 for separate branch (iteration 17+).
+- Next: keep 36 as stable, document 826/981/1073 for separate branch.
+
+### Iteration 18 (2026-08-30) — current (iteration 18/100)
+- Loop iteration 18 active, verified stable `79c2429f`/`05800716` → 1507 passed, 3 skipped via `docker compose --no-cache`.
+- Re-attempted 1073+981 again in iteration 16, got 34 failures, reverted to stable 36.
+- Remaining 5: 826 (gateway 58 files, 38 failures), 981 (explicit routing 21 files, 34 failures), 1073 (LAN 12 files, 34 failures) — all deferred as high-risk needing test fixes for _resync, middleware routing, gateway queue; 1121/1333 are SKIPs.
+- Next: keep 36 as stable, document final state, prepare for manual rebase in separate branch (iteration 19+).
