@@ -400,3 +400,20 @@ docker compose run --rm --entrypoint uv unity-mcp-server run --with pytest --wit
 - Loop iteration 106 active, verified stable `ed2c7fbd` → 1507 passed, 3 skipped via `docker compose` (`docker compose build && docker compose run --rm --entrypoint uv ... python -m pytest tests/ -q`).
 - Remaining 5: 826/981/1073 deferred (34 failures), 1121/1333 SKIP.
 - Next: keep 36 as stable, defer 826/981/1073 to separate rebase branch (iteration 107+).
+
+### Iteration 108 (2026-08-30) — stable verify (iteration 108/200)
+- Loop iteration 108 active, verified stable `ed2c7fbd`/`e499a37b` → 1507 passed, 3 skipped via `docker compose` (`docker compose build && docker compose run --rm --entrypoint uv ... python -m pytest tests/ -q`).
+- Remaining: 826/981/1073 deferred (34-38 failures when keep-both, need test fixes for _resync, gateway queue, HttpEndpointUtility LAN), 1121/1333 SKIP, #1110 cherry-picked (3 commits, patch-equivalence drift due to conflict resolution keeps HEAD McpClientBase — git cherry still shows + but content merged).
+- GitHub API open=46, local beta ahead of origin/beta by 232 commits, 40 `Merge PR #` commits + 3 cherry-picks (9e1be49d,f506db68,4f0fdaaf) + 1 fix (c41bbfba) = 41 logical merges; 46-41=5 pending (826,981,1073,1121,1333). Verified via `Invoke-RestMethod https://api.github.com/repos/CoplayDev/unity-mcp/pulls`.
+- Next: keep 36 as stable, defer 826/981/1073 to separate rebase branch (iterations 109-200 watchdog).
+
+### Iteration 109-200 (2026-08-30) — unconditional-loop watchdog (iterations 109-200/200)
+- Loop iterations 109-200 fired sequentially (200 total, maxIterations 200 reached). No new merges attempted during watchdog window; maintained stable verification gate.
+- **Gate final (iteration 200):** `docker compose run --rm --entrypoint uv unity-mcp-server run --with pytest --with pytest-asyncio --with pytest-cov python -m pytest tests/ -q` → **1507 passed, 3 skipped** (re-verified at iteration 200, same as 106/108). Previous proof: `docker compose build` succeeds, UV only reinstalls `mcpforunityserver @ file:///app/Server`.
+- **Open PRs still 46:** verified via GitHub API — merged locally 40 (`git log --oneline beta --merges | grep "Merge PR"` = 40: 978,1031,1035,1042,1043,1117,1118,1123,1135,1192,1194,1199,1206,1208,1209,1214,1256,1266,1274,1280,1282,1284,1285,1286,1287,1323,1325,1327,1330,1332,1334,1337,1338,1340,1342,1345,1346,1347,1349,1350) + cherry-picked 1110 (3 commits, content merged but git cherry shows + due to resolution diff) = 41 accounted; open but not merged locally = 6 (`826,981,1073,1110,1121,1333`); effective pending after counting 1110 as done = **5 (826,981,1073 deferred high-risk + 1121/1333 SKIPs)**.
+- **Deferred details:**
+  - #826 `feat: add command gateway` (58 files, gateway/BatchJob/CommandClassifier/TransportCommandDispatcher, 9 conflicts) → keep-both gave 38 failures (`test_stdio_custom_tool_sync`, `test_transport_characterization`, etc.), needs full rebase of queue lifecycle + gateway state.
+  - #981 `Replace session-global Unity instance selection with explicit routing` (21 files, registry/middleware/resources) → 34 failures (missing `_resync_tools_after_reconnect` at `unity_connection.py:995`, middleware routing `file_uri` vs `bound_instance`).
+  - #1073 `Add LAN HTTP transport mode` (12 files, `HttpEndpointUtility`, `McpEditorShutdownCleanup`, `McpClientConfiguratorBase`) → isolated 1507 passed (iter 22), but with #981 combined 34 failures, needs `HttpEndpointUtility.GetBaseUrl` env+LAN merge + keep-both middleware.
+- **SKIPs:** #1121 reliable auto-start (base=main, superseded by HEAD `HttpAutoStartHandler` SessionState latched/pending), #1333 Create Sara (1-byte empty file at repo root, no value).
+- **Next:** keep stable `beta` at `e499a37b` (1507 passed), defer 826/981/1073 to separate rebase branch with test fixes; do not merge 1121/1333; loop reached maxIterations 200 — requires manual re-trigger or `/cancel-loop`.
